@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rooftop plane watch</title>
+<style>
+  :root { --bg:#fafaf7; --fg:#1d2327; --muted:#667; --card:#fff; --line:#d9d9d2; --accent:#1f6feb; --accent2:#d9480f; --grid:#e4e4dd; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14181c; --fg:#e6e8ea; --muted:#9aa4ad; --card:#1c2228; --line:#2d363e; --accent:#58a6ff; --accent2:#ff8a4c; --grid:#2a323a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, Segoe UI, sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:36px 0 4px; }
+  p.sub, p.note { color:var(--muted); margin:0 0 12px; }
+  p.note { font-size:13px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:18px 0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .card b { display:block; font-size:24px; }
+  .card span { color:var(--muted); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px; }
+  figcaption { font-size:13px; color:var(--muted); margin-top:4px; }
+  canvas { width:100%; height:auto; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:14px; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:right; padding:6px 10px; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  .scroll { overflow-x:auto; }
+  footer { margin-top:40px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rooftop plane watch</h1>
+  <p class="sub">What an ADS-B receiver and a roof microphone see overhead. Updated daily. <span id="gen"></span></p>
+
+  <div class="cards" id="cards"></div>
+
+  <h2>Reception range</h2>
+  <p class="sub">Farthest aircraft heard by the 1090 MHz receiver in each 5&deg; of bearing. North is up.</p>
+  <div class="grid"><figure><canvas id="cover" width="560" height="560"></canvas><figcaption id="covercap"></figcaption></figure>
+  <figure><canvas id="rings" width="560" height="560"></canvas><figcaption>Different aircraft per day by closest distance to the roof.</figcaption></figure></div>
+
+  <h2>Common tracks</h2>
+  <p class="sub">Where aircraft below 18,000 ft pass, in km east and north of the roof. Brighter means more different aircraft. Rings at 5, 10 and 20 km. Shown only where at least <span id="mink"></span> aircraft crossed a cell.</p>
+  <div class="grid">
+    <figure><canvas id="t_all" width="560" height="560"></canvas><figcaption>All days</figcaption></figure>
+    <figure><canvas id="t_N" width="560" height="560"></canvas><figcaption>North flow (planes land and take off heading north)</figcaption></figure>
+    <figure><canvas id="t_S" width="560" height="560"></canvas><figcaption>South flow (planes land and take off heading south)</figcaption></figure>
+  </div>
+
+  <h2>When they fly</h2>
+  <div class="grid">
+    <figure><canvas id="hours" width="640" height="320"></canvas><figcaption>Different aircraft seen per hour of day (lines are days, newest is bold).</figcaption></figure>
+    <figure><canvas id="close" width="640" height="320"></canvas><figcaption>Close passes (within 2 km) by hour of day, all days together.</figcaption></figure>
+  </div>
+
+  <h2>What they are</h2>
+  <div class="grid">
+    <figure><canvas id="classes" width="640" height="320"></canvas><figcaption>Size class from the ADS-B category, aircraft passing within 10 km.</figcaption></figure>
+    <figure><canvas id="types" width="640" height="420"></canvas><figcaption id="typecap">Aircraft types within 10 km.</figcaption></figure>
+  </div>
+
+  <h2>Weather and runway flow</h2>
+  <p class="sub">The wind decides which way the airports run, which decides who flies over the roof.</p>
+  <div class="scroll"><table id="days"></table></div>
+
+  <footer>
+    All figures are daily aggregates. No positions of individual flights, no registrations, callsigns or owners, and nothing for military or government aircraft. Days with a partial count are marked.
+  </footer>
+</main>
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+fetch('data.json').then(r => r.json()).then(D => {
+  document.getElementById('gen').textContent = 'Last build ' + D.generated + '.';
+  document.getElementById('mink').textContent = D.min_k;
+  const days = D.days, last = days[days.length - 1]; days.forEach((d, i) => { d.partial = d.hours_covered < 22; d.partial_end = (i === days.length - 1) && d.partial; });
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const cards = [
+    [days.length, 'days of data'], [sum(days.map(d => d.aircraft)).toLocaleString(), 'aircraft sightings (per-day distinct)'],
+    [sum(days.map(d => d.passes2)).toLocaleString(), 'close passes (within 2 km)'], [Math.max(...D.cover).toFixed(0) + ' km', 'longest reception range']
+  ];
+  document.getElementById('cards').innerHTML = cards.map(c => `<div class="card"><b>${c[0]}</b><span>${c[1]}</span></div>`).join('');
+
+  function ctx(id) { const c = document.getElementById(id), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height); return [c, g]; }
+  function text(g, s, x, y, o) { g.fillStyle = css('--muted'); g.font = (o && o.font) || '14px sans-serif'; g.textAlign = (o && o.align) || 'left'; g.fillText(s, x, y); }
+
+  // ---- polar helper ----
+  function polarBase(g, w, h, maxKm, ringStep) {
+    const cx = w / 2, cy = h / 2, R = w / 2 - 28, k = R / maxKm;
+    g.strokeStyle = css('--grid'); g.lineWidth = 1;
+    for (let r = ringStep; r <= maxKm + 1e-9; r += ringStep) { g.beginPath(); g.arc(cx, cy, r * k, 0, 7); g.stroke(); text(g, r + ' km', cx + 4, cy - r * k + 12, { font: '11px sans-serif' }); }
+    g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
+    text(g, 'N', cx, 16, { align: 'center', font: 'bold 14px sans-serif' }); text(g, 'E', w - 12, cy + 5, { align: 'center' });
+    text(g, 'S', cx, h - 6, { align: 'center' }); text(g, 'W', 12, cy + 5, { align: 'center' });
+    return { cx, cy, k };
+  }
+
+  // ---- coverage ----
+  { const [c, g] = ctx('cover'); const mx = Math.max(...D.cover); const step = mx > 250 ? 100 : mx > 120 ? 50 : 25;
+    const maxKm = Math.ceil(mx / step) * step; const { cx, cy, k } = polarBase(g, c.width, c.height, maxKm, step);
+    g.beginPath(); D.cover.forEach((r, i) => { const a = (i * 5 + 2.5) * Math.PI / 180; const x = cx + Math.sin(a) * r * k, y = cy - Math.cos(a) * r * k; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
+    g.fillStyle = css('--accent') + '55'; g.fill(); g.strokeStyle = css('--accent'); g.lineWidth = 2; g.stroke();
+    document.getElementById('covercap').textContent = 'Longest range ' + mx.toFixed(0) + ' km, median across bearings ' + D.cover.slice().sort((a, b) => a - b)[36].toFixed(0) + ' km.'; }
+
+  // ---- distance rings: stacked bars by day ----
+  { const [c, g] = ctx('rings'); const w = c.width, h = c.height, L = 44, B = 56, T = 14;
+    const labels = D.range_rings.map(r => r[1] > 300 ? r[0] + '+' : r[0] + '-' + r[1]);
+    const cols = ['#d9480f', '#f08c00', '#e8c200', '#37b24d', '#1f6feb', '#7048e8'];
+    const tot = days.map(d => sum(d.rings)); const mx = Math.max(...tot, 1); const bw = (w - L - 10) / days.length;
+    g.strokeStyle = css('--grid'); for (let i = 0; i <= 4; i++) { const y = T + (h - T - B) * i / 4; g.beginPath(); g.moveTo(L, y); g.lineTo(w, y); g.stroke(); text(g, Math.round(mx * (1 - i / 4)), L - 6, y + 4, { align: 'right', font: '11px sans-serif' }); }
+    days.forEach((d, i) => { let y = h - B; d.rings.forEach((n, j) => { const hh = (h - T - B) * n / mx; g.fillStyle = cols[j]; g.fillRect(L + i * bw + 3, y - hh, bw - 6, hh); y -= hh; });
+      text(g, d.day.slice(5), L + i * bw + bw / 2, h - B + 14, { align: 'center', font: '10px sans-serif' }); });
+    labels.forEach((s, j) => { g.fillStyle = cols[j]; g.fillRect(L + j * 80, h - 24, 10, 10); text(g, s + ' km', L + j * 80 + 14, h - 14, { font: '11px sans-serif' }); }); }
+
+  // ---- track heat maps ----
+  function heat(id, cells) { const [c, g] = ctx(id); const w = c.width, h = c.height, R = D.range, px = w / (2 * R) ;
+    const cs = D.cell * px; const srt = cells.map(x => x[2]).sort((a, b) => a - b); const mx = Math.max(1, srt[Math.floor(srt.length * 0.95)] || 1); const lg = v => Math.sqrt(Math.min(v, mx) / mx);
+    g.fillStyle = css('--card'); g.fillRect(0, 0, w, h);
+    cells.forEach(([ix, iy, n]) => { const x = w / 2 + ix * cs, y = h / 2 - (iy + 1) * cs; const a = 0.12 + 0.88 * lg(n); g.fillStyle = `rgba(217,72,15,${a})`; g.fillRect(x, y, cs + 0.5, cs + 0.5); });
+    g.strokeStyle = css('--muted'); g.lineWidth = 1; g.setLineDash([4, 4]);
+    [5, 10, 20].forEach(r => { g.beginPath(); g.arc(w / 2, h / 2, r * px, 0, 7); g.stroke(); text(g, r + ' km', w / 2 + 3, h / 2 - r * px + 12, { font: '11px sans-serif' }); });
+    g.setLineDash([]); g.fillStyle = css('--accent'); g.beginPath(); g.arc(w / 2, h / 2, 5, 0, 7); g.fill();
+    text(g, 'N', w / 2, 16, { align: 'center', font: 'bold 14px sans-serif' }); text(g, 'E', w - 10, h / 2 + 5, { align: 'center' }); text(g, 'S', w / 2, h - 6, { align: 'center' }); text(g, 'W', 10, h / 2 + 5, { align: 'center' }); }
+  heat('t_all', D.tracks.all); heat('t_N', D.tracks.N); heat('t_S', D.tracks.S);
+
+  // ---- bar/line helpers ----
+  function axes(g, w, h, L, B, T, mx, xl) { g.strokeStyle = css('--grid');
+    for (let i = 0; i <= 4; i++) { const y = T + (h - T - B) * i / 4; g.beginPath(); g.moveTo(L, y); g.lineTo(w - 6, y); g.stroke(); text(g, Math.round(mx * (1 - i / 4)), L - 6, y + 4, { align: 'right', font: '11px sans-serif' }); }
+    xl.forEach(([i, s], _, a) => text(g, s, L + (w - L - 6) * i / 24, h - B + 16, { align: 'center', font: '11px sans-serif' })); }
+  const hrLabels = [0, 3, 6, 9, 12, 15, 18, 21].map(i => [i + 0.5, String(i)]);
+  { const [c, g] = ctx('hours'); const w = c.width, h = c.height, L = 40, B = 36, T = 10; const mx = Math.max(...days.flatMap(d => d.per_hour), 1);
+    axes(g, w, h, L, B, T, mx, hrLabels);
+    days.forEach((d, di) => { g.beginPath(); const lastH = d.per_hour.reduce((a, n, i) => n ? i : a, 0); const firstH = d.per_hour.findIndex(n => n > 0); let started = false; d.per_hour.forEach((n, i) => { if (d.partial && (i < firstH || i > lastH)) return; const x = L + (w - L - 6) * (i + 0.5) / 24, y = T + (h - T - B) * (1 - n / mx); started ? g.lineTo(x, y) : g.moveTo(x, y); started = true; });
+      const isLast = di === days.length - 1; g.strokeStyle = isLast ? css('--accent2') : css('--accent'); g.globalAlpha = isLast ? 1 : 0.3; g.lineWidth = isLast ? 3 : 1.5; g.stroke(); g.globalAlpha = 1; }); }
+  { const [c, g] = ctx('close'); const w = c.width, h = c.height, L = 40, B = 36, T = 10; const tot = Array(24).fill(0); days.forEach(d => d.close_hour.forEach((n, i) => tot[i] += n));
+    const mx = Math.max(...tot, 1); axes(g, w, h, L, B, T, mx, hrLabels); const bw = (w - L - 6) / 24;
+    tot.forEach((n, i) => { const hh = (h - T - B) * n / mx; g.fillStyle = css('--accent'); g.fillRect(L + i * bw + 2, h - B - hh, bw - 4, hh); }); }
+
+  // ---- horizontal bars ----
+  function hbars(id, rows, colour) { const [c, g] = ctx(id); const w = c.width, h = c.height, L = 190, T = 6; const mx = Math.max(...rows.map(r => r[1]), 1); const bh = (h - T) / rows.length;
+    rows.forEach((r, i) => { const y = T + i * bh; text(g, r[0], L - 8, y + bh * 0.68, { align: 'right', font: '12px sans-serif' }); g.fillStyle = colour; g.fillRect(L, y + 3, (w - L - 50) * r[1] / mx, bh - 6); text(g, r[1], L + (w - L - 50) * r[1] / mx + 5, y + bh * 0.68, { font: '12px sans-serif' }); }); }
+  hbars('classes', D.classes, css('--accent'));
+  hbars('types', D.types.slice(0, 14).map(t => [t[0] + (t[1] ? ' ' + t[1].slice(0, 22) : ''), t[2]]), css('--accent2'));
+  document.getElementById('typecap').textContent = 'Most common aircraft types within 10 km' + (D.types_other ? ' (' + D.types_other + ' more in rarer types, not listed).' : '.');
+
+  // ---- weather / flow table ----
+  const rows = days.slice().reverse().map((d, i) => { const w = d.wx[12] || d.wx[11] || d.wx[13];
+    const fl = d.passes2_by_flow || {}; const n = d.passes2; const part = d.partial ? ' (partial)' : '';
+    return `<tr><td>${d.day}${part}</td><td>${d.aircraft}</td><td>${n}</td><td>${d.passes5}</td><td>${w ? (w[0] + ' at ' + w[1] + ' kt') : '-'}</td><td>${w ? ({ N: 'north', S: 'south' }[w[2]] || '-') : '-'}</td><td>${fl.N || 0} / ${fl.S || 0}</td></tr>`; }).join('');
+  document.getElementById('days').innerHTML = '<tr><th>Day</th><th>Aircraft</th><th>Within 2 km</th><th>Within 5 km</th><th>Midday wind</th><th>Flow</th><th>Close passes N / S flow</th></tr>' + rows;
+});
+</script>
+</body>
+</html>
