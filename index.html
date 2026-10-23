@@ -41,6 +41,7 @@
   <p class="sub">Farthest aircraft heard by the 1090 MHz receiver in each 5&deg; of bearing. North is up.</p>
   <div class="grid"><figure><canvas id="cover" width="560" height="560"></canvas><figcaption id="covercap"></figcaption></figure>
   <figure><canvas id="rings" width="560" height="560"></canvas><figcaption>Different aircraft per day by closest distance to the roof.</figcaption></figure></div>
+  <p class="note"><b>What this means.</b> Left: the shaded shape is how far away the receiver picked up aircraft in each direction. A longer reach in one direction means a clearer view that way, and hills, buildings and the antenna position limit the rest. Right: each bar is one day, split by how close each aircraft came to the roof at its nearest point. Most traffic stays 5 to 50 km away and only a thin slice passes close.</p>
 
   <h2>Common tracks</h2>
   <p class="sub">Where aircraft below 18,000 ft pass, in km east and north of the roof. Brighter means more different aircraft. Rings at 5, 10 and 20 km. Shown only where at least <span id="mink"></span> aircraft crossed a cell.</p>
@@ -49,22 +50,39 @@
     <figure><canvas id="t_N" width="560" height="560"></canvas><figcaption>North flow (planes land and take off heading north)</figcaption></figure>
     <figure><canvas id="t_S" width="560" height="560"></canvas><figcaption>South flow (planes land and take off heading south)</figcaption></figure>
   </div>
+  <p class="note"><b>What this means.</b> Each map is a bird's-eye view of where aircraft fly, with the roof as the blue dot. Bright lines are routes that planes follow again and again, such as arrival and departure paths. Dim scatter is one-off flights. The north-flow and south-flow maps split the days by which way the nearby airports are running, which changes the routes completely.</p>
 
   <h2>When they fly</h2>
   <div class="grid">
     <figure><canvas id="hours" width="640" height="320"></canvas><figcaption>Different aircraft seen per hour of day (lines are days, newest is bold).</figcaption></figure>
     <figure><canvas id="close" width="640" height="320"></canvas><figcaption>Close passes (within 2 km) by hour of day, all days together.</figcaption></figure>
   </div>
+  <p class="note"><b>What this means.</b> Left: the busy hours of the day for all aircraft in radio range, one line per day. The bold line is the newest day, which stops where its data stops. Right: how many aircraft passed within 2 km, about as close as anything gets to the roof, by hour. These are the ones loud enough to hear.</p>
 
   <h2>What they are</h2>
   <div class="grid">
     <figure><canvas id="classes" width="640" height="320"></canvas><figcaption>Size class from the ADS-B category, aircraft passing within 10 km.</figcaption></figure>
     <figure><canvas id="types" width="640" height="420"></canvas><figcaption id="typecap">Aircraft types within 10 km.</figcaption></figure>
   </div>
+  <p class="note"><b>What this means.</b> Left: aircraft grouped by the size category they broadcast, from light planes to heavy jets. Right: the most frequent aircraft models within 10 km. Models seen fewer than 3 times are left out.</p>
+
+  <h2>What the roof microphone hears</h2>
+  <p class="sub">Does the sound detector fire when ADS-B says a plane passed nearby?</p>
+  <div class="grid">
+    <figure><canvas id="m_dist" width="640" height="330"></canvas><figcaption>Share of passes heard, by how close the plane came (straight-line distance).</figcaption></figure>
+    <figure><canvas id="m_class" width="640" height="330"></canvas><figcaption>Share of passes within 2 km heard, by size class.</figcaption></figure>
+  </div>
+  <p class="note"><b>What this means.</b> An aircraft counts as heard when the detector fires within a few seconds of when its sound should reach the roof, allowing for the travel time of sound. The grey tick on each bar is what chance alone would give: the same detections moved to random times of day. A bar well above its tick means the detector is picking up real aircraft. The detector looks for a steady engine-like rise in low and mid frequencies. It cannot tell aircraft types apart yet, and it works less well on windy days.</p>
+  <div class="grid">
+    <div class="scroll"><table id="m_types"></table></div>
+    <div class="scroll"><table id="m_days"></table></div>
+  </div>
+  <p class="note"><b>What this means.</b> Left: the aircraft models that passed within 2 km at least 5 times, with how many of those passes were heard. Right: the same measure for each day. Compare the heard share with the chance column, and note that windy days (wind noise masks the engines) score much lower.</p>
 
   <h2>Weather and runway flow</h2>
   <p class="sub">The wind decides which way the airports run, which decides who flies over the roof.</p>
   <div class="scroll"><table id="days"></table></div>
+  <p class="note"><b>What this means.</b> One row per day. Aircraft is the number of different aircraft seen, and the next two columns count those that came within 2 km and 5 km of the roof. Midday wind and flow come from the airport weather reports. North flow keeps most jets off the roof, and south flow brings them over, so the close-pass counts follow the wind.</p>
 
   <footer>
     All figures are daily aggregates. No positions of individual flights, no registrations, callsigns or owners, and nothing for military or government aircraft. Days with a partial count are marked.
@@ -79,7 +97,7 @@ fetch('data.json').then(r => r.json()).then(D => {
   const sum = (a) => a.reduce((x, y) => x + y, 0);
   const cards = [
     [days.length, 'days of data'], [sum(days.map(d => d.aircraft)).toLocaleString(), 'aircraft sightings (per-day distinct)'],
-    [sum(days.map(d => d.passes2)).toLocaleString(), 'close passes (within 2 km)'], [Math.max(...D.cover).toFixed(0) + ' km', 'longest reception range']
+    [sum(days.map(d => d.passes2)).toLocaleString(), 'close passes (within 2 km)'], [Math.max(...D.cover).toFixed(0) + ' km', 'longest reception range'], ...(D.mic ? [[Math.round(100 * D.mic.by_distance.slice(0, 2).reduce((a, r) => a + r.heard, 0) / Math.max(1, D.mic.by_distance.slice(0, 2).reduce((a, r) => a + r.n, 0))) + '%', 'of close passes heard by the mic']] : [])
   ];
   document.getElementById('cards').innerHTML = cards.map(c => `<div class="card"><b>${c[0]}</b><span>${c[1]}</span></div>`).join('');
 
@@ -144,6 +162,21 @@ fetch('data.json').then(r => r.json()).then(D => {
   hbars('classes', D.classes, css('--accent'));
   hbars('types', D.types.slice(0, 14).map(t => [t[0] + (t[1] ? ' ' + t[1].slice(0, 22) : ''), t[2]]), css('--accent2'));
   document.getElementById('typecap').textContent = 'Most common aircraft types within 10 km' + (D.types_other ? ' (' + D.types_other + ' more in rarer types, not listed).' : '.');
+
+  // ---- microphone ----
+  function rateBars(id, rows) { const [c, g] = ctx(id); const w = c.width, h = c.height, L = 150, T = 8, R = 70; const bh = (h - T - 20) / Math.max(rows.length, 1);
+    g.strokeStyle = css('--grid'); [0, 25, 50, 75, 100].forEach(p => { const x = L + (w - L - R) * p / 100; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - 20); g.stroke(); text(g, p + '%', x, h - 5, { align: 'center', font: '11px sans-serif' }); });
+    rows.forEach((r, i) => { const y = T + i * bh, p = 100 * r.heard / r.n, cp = 100 * (r.chance || 0);
+      text(g, r.label, L - 8, y + bh * 0.62, { align: 'right', font: '12px sans-serif' });
+      g.fillStyle = css('--accent'); g.fillRect(L, y + 6, (w - L - R) * p / 100, bh - 12);
+      g.strokeStyle = css('--muted'); g.lineWidth = 3; const cx = L + (w - L - R) * cp / 100; g.beginPath(); g.moveTo(cx, y + 2); g.lineTo(cx, y + bh - 2); g.stroke(); g.lineWidth = 1;
+      text(g, Math.round(p) + '%  (' + r.heard + '/' + r.n + ')', L + (w - L - R) * Math.max(p, cp) / 100 + 8, y + bh * 0.62, { font: '12px sans-serif' }); }); }
+  if (D.mic) {
+    rateBars('m_dist', D.mic.by_distance.map(r => ({ label: r.lo + '-' + r.hi + ' km', heard: r.heard, n: r.n, chance: r.chance })));
+    rateBars('m_class', D.mic.by_class.map(r => ({ label: r.name, heard: r.heard, n: r.n, chance: r.chance })));
+    document.getElementById('m_types').innerHTML = '<tr><th>Aircraft model</th><th>Passes within 2 km</th><th>Heard</th></tr>' + D.mic.by_type.map(r => `<tr><td>${r.type}${r.model ? ' ' + r.model : ''}</td><td>${r.n}</td><td>${Math.round(100 * r.heard / r.n)}%</td></tr>`).join('');
+    document.getElementById('m_days').innerHTML = '<tr><th>Day</th><th>Passes within 2 km</th><th>Heard</th><th>Chance</th></tr>' + D.mic.days.slice().reverse().filter(r => r.passes2 >= 5).map(r => `<tr><td>${r.day}</td><td>${r.passes2}</td><td>${Math.round(100 * r.heard2 / r.passes2)}%</td><td>${r.chance2 == null ? '-' : Math.round(100 * r.chance2) + '%'}</td></tr>`).join('');
+  }
 
   // ---- weather / flow table ----
   const rows = days.slice().reverse().map((d, i) => { const w = d.wx[12] || d.wx[11] || d.wx[13];
