@@ -74,6 +74,10 @@
   </div>
   <p class="note"><b>What this means.</b> An aircraft counts as heard when the detector fires within a few seconds of when its sound should reach the roof, allowing for the travel time of sound. The grey tick on each bar is what chance alone would give: the same detections moved to random times of day. A bar well above its tick means the detector is picking up real aircraft. The detector looks for a steady engine-like rise in low and mid frequencies. It cannot tell aircraft types apart yet, and it works less well on windy days.</p>
   <div class="grid">
+    <figure><canvas id="m_phase" width="640" height="400"></canvas><figcaption>Share of passes heard, by distance band and whether the plane was climbing, level or descending.</figcaption></figure>
+  </div>
+  <p class="note"><b>What this means.</b> Climbing planes are on departure power, so they are louder: beyond 2 km they are heard noticeably more often than level or descending planes at the same distance (51% against 23-30% at 2-4 km). Descending planes on approach are quieter, so distance alone is a poor guide to what the microphone will hear. A plane counts as climbing or descending when its altitude changes by more than 300 ft per minute around its closest approach. Bands with fewer than 8 passes are left out.</p>
+  <div class="grid">
     <div class="scroll"><table id="m_types"></table></div>
     <div class="scroll"><table id="m_days"></table></div>
   </div>
@@ -173,6 +177,7 @@ fetch('data.json').then(r => r.json()).then(D => {
       text(g, Math.round(p) + '%  (' + r.heard + '/' + r.n + ')', L + (w - L - R) * Math.max(p, cp) / 100 + 8, y + bh * 0.62, { font: '12px sans-serif' }); }); }
   if (D.mic) {
     rateBars('m_dist', D.mic.by_distance.map(r => ({ label: r.lo + '-' + r.hi + ' km', heard: r.heard, n: r.n, chance: r.chance })));
+    rateBars('m_phase', (D.mic.by_phase || []).map(r => ({ label: r.lo + '-' + r.hi + ' km, ' + r.phase.toLowerCase(), heard: r.heard, n: r.n, chance: r.chance })));
     rateBars('m_class', D.mic.by_class.map(r => ({ label: r.name, heard: r.heard, n: r.n, chance: r.chance })));
     document.getElementById('m_types').innerHTML = '<tr><th>Aircraft model</th><th>Passes within 2 km</th><th>Heard</th></tr>' + D.mic.by_type.map(r => `<tr><td>${r.type}${r.model ? ' ' + r.model : ''}</td><td>${r.n}</td><td>${Math.round(100 * r.heard / r.n)}%</td></tr>`).join('');
     document.getElementById('m_days').innerHTML = '<tr><th>Day</th><th>Passes within 2 km</th><th>Heard</th><th>Chance</th></tr>' + D.mic.days.slice().reverse().filter(r => r.passes2 >= 5).map(r => `<tr><td>${r.day}</td><td>${r.passes2}</td><td>${Math.round(100 * r.heard2 / r.passes2)}%</td><td>${r.chance2 == null ? '-' : Math.round(100 * r.chance2) + '%'}</td></tr>`).join('');
