@@ -27,6 +27,13 @@
   th:first-child, td:first-child { text-align:left; }
   th { color:var(--muted); font-weight:600; font-size:13px; }
   .scroll { overflow-x:auto; }
+  .card span.d { display:block; font-size:12px; margin-top:2px; }
+  .banner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; border:1px solid var(--accent2); border-radius:8px; padding:10px 14px; margin:12px 0; }
+  .banner[hidden] { display:none; }
+  .banner button { font:inherit; font-size:13px; color:var(--fg); background:transparent; border:1px solid var(--line); border-radius:999px; padding:8px 16px; cursor:pointer; }
+  .glance { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:0 0 14px; }
+  .glance b { font-size:15px; }
+  p.fresh { font-size:13px; color:var(--muted); margin:0 0 12px; }
   footer { margin-top:40px; color:var(--muted); font-size:13px; }
 </style>
 </head>
@@ -35,12 +42,15 @@
   <h1>Rooftop plane watch</h1>
   <p class="sub">What an ADS-B receiver and a roof microphone see overhead. Updated daily. <span id="gen"></span></p>
 
+  <div class="banner" id="err" role="alert" hidden><span>Couldn't load or draw the latest data.</span><button type="button" id="retry">Retry</button></div>
+  <p class="fresh" id="fresh"></p>
   <div class="cards" id="cards"></div>
+  <div class="glance" id="glance" hidden></div>
 
   <h2>Reception range</h2>
   <p class="sub">Farthest aircraft heard by the 1090 MHz receiver in each 5&deg; of bearing. North is up.</p>
   <div class="grid"><figure><canvas id="cover" width="560" height="560"></canvas><figcaption id="covercap"></figcaption></figure>
-  <figure><canvas id="rings" width="560" height="560"></canvas><figcaption>Different aircraft per day by closest distance to the roof.</figcaption></figure></div>
+  <figure><canvas id="rings" width="560" height="560"></canvas><figcaption>Different aircraft per day by closest distance to the roof. Faded bars marked * are partial days.</figcaption></figure></div>
   <p class="note"><b>What this means.</b> Left: the shaded shape is how far away the receiver picked up aircraft in each direction. A longer reach in one direction means a clearer view that way, and hills, buildings and the antenna position limit the rest. Right: each bar is one day, split by how close each aircraft came to the roof at its nearest point. Most traffic stays 5 to 50 km away and only a thin slice passes close.</p>
 
   <h2>Common tracks</h2>
@@ -94,7 +104,9 @@
 </main>
 <script>
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-fetch('data.json').then(r => r.json()).then(D => {
+function load() {
+document.getElementById('err').hidden = true;
+return fetch('data.json').then(r => { if (!r.ok) throw new Error('data.json ' + r.status); return r.json(); }).then(D => {
   document.getElementById('gen').textContent = 'Last build ' + D.generated + '.';
   document.getElementById('mink').textContent = D.min_k;
   const days = D.days, last = days[days.length - 1]; days.forEach((d, i) => { d.partial = d.hours_covered < 22; d.partial_end = (i === days.length - 1) && d.partial; });
@@ -103,7 +115,20 @@ fetch('data.json').then(r => r.json()).then(D => {
     [days.length, 'days of data'], [sum(days.map(d => d.aircraft)).toLocaleString(), 'aircraft sightings (per-day distinct)'],
     [sum(days.map(d => d.passes2)).toLocaleString(), 'close passes (within 2 km)'], [Math.max(...D.cover).toFixed(0) + ' km', 'longest reception range'], ...(D.mic ? [[Math.round(100 * D.mic.by_distance.slice(0, 2).reduce((a, r) => a + r.heard, 0) / Math.max(1, D.mic.by_distance.slice(0, 2).reduce((a, r) => a + r.n, 0))) + '%', 'of close passes heard by the mic']] : [])
   ];
-  document.getElementById('cards').innerHTML = cards.map(c => `<div class="card"><b>${c[0]}</b><span>${c[1]}</span></div>`).join('');
+  // baselines: what a normal complete day looks like, so a number reads as high or low
+  const full = days.filter(d => d.hours_covered >= 22), med = a => { const q = a.slice().sort((x, y) => x - y); return q.length ? q[Math.floor(q.length / 2)] : null; };
+  const medAc = med(full.map(d => d.aircraft)), medP2 = med(full.map(d => d.passes2));
+  cards[0][2] = full.length + ' full, ' + (days.length - full.length) + ' partial';
+  if (medAc !== null) { cards[1][2] = 'typical full day: ' + medAc; cards[2][2] = 'typical full day: ' + medP2; }
+  document.getElementById('cards').innerHTML = cards.map(c => `<div class="card"><b>${c[0]}</b><span>${c[1]}</span>${c[2] ? '<span class="d">' + c[2] + '</span>' : ''}</div>`).join('');
+  const dnice = s => new Date(s.replace(' ', 'T')).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const fr = document.getElementById('fresh');
+  fr.style.color = D.last_data && Date.now() - new Date(D.last_data.replace(' ', 'T')) > 3 * 3600e3 ? css('--accent2') : '';   // stale data goes warm, never silent
+  fr.textContent = (D.last_data ? 'Receiver data through ' + dnice(D.last_data) + '. ' : '') + (D.gaps && D.gaps.length ? 'Receiver outages of an hour or more (no data at all, not quiet skies): ' + D.gaps.slice(-4).map(g => dnice(g[0]) + ' to ' + (g[1] === 'now' ? 'now' : dnice(g[1])) + ' (' + Math.round(g[2]) + ' h)').join('; ') + '.' : 'No receiver outages of an hour or more in this period.');
+  const L1 = full[full.length - 1];
+  if (L1 && medAc) { const pc = (v, m) => m ? (v === m ? 'typical' : Math.round(100 * Math.abs(v / m - 1)) + '% ' + (v > m ? 'above' : 'below') + ' typical') : '', bh = L1.close_hour.indexOf(Math.max(...L1.close_hour)), fl = L1.passes2_by_flow || {};
+    const g = document.getElementById('glance'); g.hidden = false;
+    g.innerHTML = '<b>Latest full day, ' + new Date(L1.day + 'T12:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + '</b><br>' + L1.aircraft + ' different aircraft (' + pc(L1.aircraft, medAc) + '), ' + L1.passes2 + ' close passes within 2 km (' + pc(L1.passes2, medP2) + ')' + (L1.passes2 ? ', most close passes ' + bh + ':00 to ' + (bh + 1) + ':00' : '') + '. Close passes under north / south flow: ' + (fl.N || 0) + ' / ' + (fl.S || 0) + '.'; }
 
   function ctx(id) { const c = document.getElementById(id), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height); return [c, g]; }
   function text(g, s, x, y, o) { g.fillStyle = css('--muted'); g.font = (o && o.font) || '14px sans-serif'; g.textAlign = (o && o.align) || 'left'; g.fillText(s, x, y); }
@@ -122,6 +147,7 @@ fetch('data.json').then(r => r.json()).then(D => {
   // ---- coverage ----
   { const [c, g] = ctx('cover'); const mx = Math.max(...D.cover); const step = mx > 250 ? 100 : mx > 120 ? 50 : 25;
     const maxKm = Math.ceil(mx / step) * step; const { cx, cy, k } = polarBase(g, c.width, c.height, maxKm, step);
+    if (D.coast_wide) { g.save(); g.beginPath(); g.arc(cx, cy, maxKm * k, 0, 7); g.clip(); g.strokeStyle = css('--muted'); g.globalAlpha = 0.8; g.lineWidth = 1; D.coast_wide.forEach(l => { g.beginPath(); l.forEach(([x, y], i) => { const X = cx + x * k, Y = cy - y * k; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }); g.restore(); }
     g.beginPath(); D.cover.forEach((r, i) => { const a = (i * 5 + 2.5) * Math.PI / 180; const x = cx + Math.sin(a) * r * k, y = cy - Math.cos(a) * r * k; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
     g.fillStyle = css('--accent') + '55'; g.fill(); g.strokeStyle = css('--accent'); g.lineWidth = 2; g.stroke();
     document.getElementById('covercap').textContent = 'Longest range ' + mx.toFixed(0) + ' km, median across bearings ' + D.cover.slice().sort((a, b) => a - b)[36].toFixed(0) + ' km.'; }
@@ -132,14 +158,15 @@ fetch('data.json').then(r => r.json()).then(D => {
     const cols = ['#d9480f', '#f08c00', '#e8c200', '#37b24d', '#1f6feb', '#7048e8'];
     const tot = days.map(d => sum(d.rings)); const mx = Math.max(...tot, 1); const bw = (w - L - 10) / days.length;
     g.strokeStyle = css('--grid'); for (let i = 0; i <= 4; i++) { const y = T + (h - T - B) * i / 4; g.beginPath(); g.moveTo(L, y); g.lineTo(w, y); g.stroke(); text(g, Math.round(mx * (1 - i / 4)), L - 6, y + 4, { align: 'right', font: '11px sans-serif' }); }
-    days.forEach((d, i) => { let y = h - B; d.rings.forEach((n, j) => { const hh = (h - T - B) * n / mx; g.fillStyle = cols[j]; g.fillRect(L + i * bw + 3, y - hh, bw - 6, hh); y -= hh; });
-      text(g, d.day.slice(5), L + i * bw + bw / 2, h - B + 14, { align: 'center', font: '10px sans-serif' }); });
+    days.forEach((d, i) => { let y = h - B; g.globalAlpha = d.partial ? 0.4 : 1; d.rings.forEach((n, j) => { const hh = (h - T - B) * n / mx; g.fillStyle = cols[j]; g.fillRect(L + i * bw + 3, y - hh, bw - 6, hh); y -= hh; }); g.globalAlpha = 1;
+      text(g, d.day.slice(5) + (d.partial ? '*' : ''), L + i * bw + bw / 2, h - B + 14, { align: 'center', font: '10px sans-serif' }); });
     labels.forEach((s, j) => { g.fillStyle = cols[j]; g.fillRect(L + j * 80, h - 24, 10, 10); text(g, s + ' km', L + j * 80 + 14, h - 14, { font: '11px sans-serif' }); }); }
 
   // ---- track heat maps ----
   function heat(id, cells) { const [c, g] = ctx(id); const w = c.width, h = c.height, R = D.range, px = w / (2 * R) ;
     const cs = D.cell * px; const srt = cells.map(x => x[2]).sort((a, b) => a - b); const mx = Math.max(1, srt[Math.floor(srt.length * 0.95)] || 1); const lg = v => Math.sqrt(Math.min(v, mx) / mx);
     g.fillStyle = css('--card'); g.fillRect(0, 0, w, h);
+    if (D.coast) { g.save(); g.strokeStyle = css('--muted'); g.globalAlpha = 0.8; g.lineWidth = 1.2; g.setLineDash([]); D.coast.forEach(l => { g.beginPath(); l.forEach(([x, y], i) => { const X = w / 2 + x * px, Y = h / 2 - y * px; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }); g.restore(); }
     cells.forEach(([ix, iy, n]) => { const x = w / 2 + ix * cs, y = h / 2 - (iy + 1) * cs; const a = 0.12 + 0.88 * lg(n); g.fillStyle = `rgba(217,72,15,${a})`; g.fillRect(x, y, cs + 0.5, cs + 0.5); });
     g.strokeStyle = css('--muted'); g.lineWidth = 1; g.setLineDash([4, 4]);
     [5, 10, 20].forEach(r => { g.beginPath(); g.arc(w / 2, h / 2, r * px, 0, 7); g.stroke(); text(g, r + ' km', w / 2 + 3, h / 2 - r * px + 12, { font: '11px sans-serif' }); });
@@ -188,7 +215,10 @@ fetch('data.json').then(r => r.json()).then(D => {
     const fl = d.passes2_by_flow || {}; const n = d.passes2; const part = d.partial ? ' (partial)' : '';
     return `<tr><td>${d.day}${part}</td><td>${d.aircraft}</td><td>${n}</td><td>${d.passes5}</td><td>${w ? (w[0] + ' at ' + w[1] + ' kt') : '-'}</td><td>${w ? ({ N: 'north', S: 'south' }[w[2]] || '-') : '-'}</td><td>${fl.N || 0} / ${fl.S || 0}</td></tr>`; }).join('');
   document.getElementById('days').innerHTML = '<tr><th>Day</th><th>Aircraft</th><th>Within 2 km</th><th>Within 5 km</th><th>Midday wind</th><th>Flow</th><th>Close passes N / S flow</th></tr>' + rows;
-});
+}).catch(() => { document.getElementById('err').hidden = false; });
+}
+document.getElementById('retry').addEventListener('click', load);
+load();
 </script>
 </body>
 </html>
