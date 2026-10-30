@@ -106,7 +106,7 @@
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function load() {
 document.getElementById('err').hidden = true;
-return fetch('data.json').then(r => { if (!r.ok) throw new Error('data.json ' + r.status); return r.json(); }).then(D => {
+return fetch('data.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error('data.json ' + r.status); return r.json(); }).then(D => {
   document.getElementById('gen').textContent = 'Last build ' + D.generated + '.';
   document.getElementById('mink').textContent = D.min_k;
   const days = D.days, last = days[days.length - 1]; days.forEach((d, i) => { d.partial = d.hours_covered < 22; d.partial_end = (i === days.length - 1) && d.partial; });
