@@ -147,7 +147,7 @@ return fetch('data.json').then(r => { if (!r.ok) throw new Error('data.json ' + 
   // ---- coverage ----
   { const [c, g] = ctx('cover'); const mx = Math.max(...D.cover); const step = mx > 250 ? 100 : mx > 120 ? 50 : 25;
     const maxKm = Math.ceil(mx / step) * step; const { cx, cy, k } = polarBase(g, c.width, c.height, maxKm, step);
-    if (D.coast_wide) { g.save(); g.beginPath(); g.arc(cx, cy, maxKm * k, 0, 7); g.clip(); g.strokeStyle = css('--muted'); g.globalAlpha = 0.8; g.lineWidth = 1; D.coast_wide.forEach(l => { g.beginPath(); l.forEach(([x, y], i) => { const X = cx + x * k, Y = cy - y * k; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }); g.restore(); }
+    if (D.coast_wide) { g.save(); g.beginPath(); g.arc(cx, cy, maxKm * k, 0, 7); g.clip(); g.strokeStyle = css('--muted'); g.globalAlpha = 0.5; g.lineWidth = 1; D.coast_wide.forEach(l => { g.beginPath(); l.forEach(([x, y], i) => { const X = cx + x * k, Y = cy - y * k; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }); g.restore(); }
     g.beginPath(); D.cover.forEach((r, i) => { const a = (i * 5 + 2.5) * Math.PI / 180; const x = cx + Math.sin(a) * r * k, y = cy - Math.cos(a) * r * k; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
     g.fillStyle = css('--accent') + '55'; g.fill(); g.strokeStyle = css('--accent'); g.lineWidth = 2; g.stroke();
     document.getElementById('covercap').textContent = 'Longest range ' + mx.toFixed(0) + ' km, median across bearings ' + D.cover.slice().sort((a, b) => a - b)[36].toFixed(0) + ' km.'; }
