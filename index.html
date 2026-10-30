@@ -34,6 +34,10 @@
   .glance { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:0 0 14px; }
   .glance b { font-size:15px; }
   p.fresh { font-size:13px; color:var(--muted); margin:0 0 12px; }
+  .modes { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 6px; }
+  .modes button { font:inherit; font-size:13px; color:var(--fg); background:transparent; border:1px solid var(--line); border-radius:999px; padding:8px 14px; cursor:pointer; }
+  .modes button[aria-pressed="true"] { background:var(--grid); border-color:var(--muted); }
+  .key i { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin:0 4px 0 8px; }
   footer { margin-top:40px; color:var(--muted); font-size:13px; }
 </style>
 </head>
@@ -55,6 +59,8 @@
 
   <h2>Common tracks</h2>
   <p class="sub">Where aircraft below 18,000 ft pass, in km east and north of the roof. Brighter means more different aircraft. Rings at 5, 10 and 20 km. Shown only where at least <span id="mink"></span> aircraft crossed a cell.</p>
+  <div class="modes" id="modes" role="group" aria-label="Which aircraft to show on the maps"><button type="button" data-m="all" aria-pressed="true">All aircraft</button><button type="button" data-m="climb" aria-pressed="false">Climbing</button><button type="button" data-m="desc" aria-pressed="false">Descending</button><button type="button" data-m="both" aria-pressed="false">Climbing vs descending</button></div>
+  <p class="note key" id="modekey"></p>
   <div class="grid">
     <figure><canvas id="t_all" width="560" height="560"></canvas><figcaption>All days</figcaption></figure>
     <figure><canvas id="t_N" width="560" height="560"></canvas><figcaption>North flow (planes land and take off heading north)</figcaption></figure>
@@ -163,16 +169,23 @@ return fetch('data.json', { cache: 'no-cache' }).then(r => { if (!r.ok) throw ne
     labels.forEach((s, j) => { g.fillStyle = cols[j]; g.fillRect(L + j * 80, h - 24, 10, 10); text(g, s + ' km', L + j * 80 + 14, h - 14, { font: '11px sans-serif' }); }); }
 
   // ---- track heat maps ----
-  function heat(id, cells) { const [c, g] = ctx(id); const w = c.width, h = c.height, R = D.range, px = w / (2 * R) ;
-    const cs = D.cell * px; const srt = cells.map(x => x[2]).sort((a, b) => a - b); const mx = Math.max(1, srt[Math.floor(srt.length * 0.95)] || 1); const lg = v => Math.sqrt(Math.min(v, mx) / mx);
+  let trackMode = 'all'; const ORG = '217,72,15', BLU = '31,111,235', NEU = '150,150,160';
+  function heat(id, cells0) { const [c, g] = ctx(id); const w = c.width, h = c.height, R = D.range, px = w / (2 * R) ;
+    const val = x => trackMode === 'climb' ? x[3] : trackMode === 'desc' ? x[4] : trackMode === 'both' ? x[3] + x[4] : x[2]; const cells = cells0.filter(x => val(x) > 0);
+    const cs = D.cell * px; const srt = cells.map(val).sort((a, b) => a - b); const mx = Math.max(1, srt[Math.floor(srt.length * 0.95)] || 1); const lg = v => Math.sqrt(Math.min(v, mx) / mx);
     g.fillStyle = css('--card'); g.fillRect(0, 0, w, h);
     if (D.coast) { g.save(); g.strokeStyle = css('--muted'); g.globalAlpha = 0.8; g.lineWidth = 1.2; g.setLineDash([]); D.coast.forEach(l => { g.beginPath(); l.forEach(([x, y], i) => { const X = w / 2 + x * px, Y = h / 2 - y * px; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.stroke(); }); g.restore(); }
-    cells.forEach(([ix, iy, n]) => { const x = w / 2 + ix * cs, y = h / 2 - (iy + 1) * cs; const a = 0.12 + 0.88 * lg(n); g.fillStyle = `rgba(217,72,15,${a})`; g.fillRect(x, y, cs + 0.5, cs + 0.5); });
+    cells.forEach(x0 => { const [ix, iy] = x0, n = val(x0); const x = w / 2 + ix * cs, y = h / 2 - (iy + 1) * cs; const a = 0.12 + 0.88 * lg(n);
+      const col = trackMode === 'desc' ? BLU : trackMode === 'both' ? (x0[3] > 1.5 * x0[4] ? ORG : x0[4] > 1.5 * x0[3] ? BLU : NEU) : ORG; g.fillStyle = `rgba(${col},${a})`; g.fillRect(x, y, cs + 0.5, cs + 0.5); });
     g.strokeStyle = css('--muted'); g.lineWidth = 1; g.setLineDash([4, 4]);
     [5, 10, 20].forEach(r => { g.beginPath(); g.arc(w / 2, h / 2, r * px, 0, 7); g.stroke(); text(g, r + ' km', w / 2 + 3, h / 2 - r * px + 12, { font: '11px sans-serif' }); });
-    g.setLineDash([]); g.fillStyle = css('--accent'); g.beginPath(); g.arc(w / 2, h / 2, 5, 0, 7); g.fill();
+    g.setLineDash([]); g.fillStyle = css('--accent'); g.beginPath(); g.arc(w / 2, h / 2, 5, 0, 7); g.fill(); g.strokeStyle = css('--fg'); g.lineWidth = 1.5; g.stroke();
     text(g, 'N', w / 2, 16, { align: 'center', font: 'bold 14px sans-serif' }); text(g, 'E', w - 10, h / 2 + 5, { align: 'center' }); text(g, 'S', w / 2, h - 6, { align: 'center' }); text(g, 'W', 10, h / 2 + 5, { align: 'center' }); }
-  heat('t_all', D.tracks.all); heat('t_N', D.tracks.N); heat('t_S', D.tracks.S);
+  const keyTxt = { all: 'Brighter means more different aircraft.', climb: 'Only aircraft that were climbing (more than 300 ft a minute) as they crossed each square, mostly departures.', desc: 'Only aircraft that were descending (more than 300 ft a minute), mostly arrivals.', both: '' };
+  function drawHeats() { heat('t_all', D.tracks.all); heat('t_N', D.tracks.N); heat('t_S', D.tracks.S);
+    document.getElementById('modekey').innerHTML = trackMode === 'both' ? '<i style="background:rgb(' + ORG + ')"></i>mostly climbing (departures)<i style="background:rgb(' + BLU + ')"></i>mostly descending (arrivals)<i style="background:rgb(' + NEU + ')"></i>a mix. Brighter means more aircraft. Level flight is left out.' : keyTxt[trackMode] + (trackMode === 'all' ? '' : ' Level flight is left out and a square needs at least ' + D.min_k + ' aircraft in that group.'); }
+  document.querySelectorAll('#modes button').forEach(b => b.addEventListener('click', () => { trackMode = b.dataset.m; document.querySelectorAll('#modes button').forEach(o => o.setAttribute('aria-pressed', String(o === b))); drawHeats(); }));
+  drawHeats();
 
   // ---- bar/line helpers ----
   function axes(g, w, h, L, B, T, mx, xl) { g.strokeStyle = css('--grid');
